@@ -1,0 +1,47 @@
+/*
+ * assets/css/custom.css
+ * Style kustom di luar Bootstrap untuk MBG-Health & Feedback
+ */
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* Sidebar aktif & hover sudah ditangani di header.php via <style> inline,
+   diperkuat di sini untuk konsistensi */
+.sidebar {
+    min-height: calc(100vh - 56px); /* tinggi viewport dikurangi navbar */
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card {
+    border-radius: .5rem;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+.table th {
+    font-weight: 600;
+    font-size: .875rem;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badge {
+    font-size: .75rem;
+    letter-spacing: .02em;
+}
+
+/* ── Navbar brand ────────────────────────────────────────────────────────── */
+.navbar-brand {
+    letter-spacing: -.2px;
+}
+
+/* ── Login card (dipakai di auth/login.php) ──────────────────────────────── */
+.login-wrapper {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f0f4f8;
+}

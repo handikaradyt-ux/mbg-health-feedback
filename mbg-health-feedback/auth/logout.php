@@ -1,39 +1,26 @@
 <?php
 /**
  * auth/logout.php
- * Proses logout: hapus session dan redirect ke login
+ * Proses logout: catat audit log, hancurkan session, redirect ke login
  */
 
-require_once dirname(__DIR__) . '/config/app.php';
-require_once dirname(__DIR__) . '/auth/session.php';
-require_once dirname(__DIR__) . '/helpers/audit_helper.php';
+require_once __DIR__ . '/../config/app.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../auth/session.php';
+require_once __DIR__ . '/../helpers/audit_helper.php';
 
-// Catat audit log sebelum session dihapus
+startSecureSession();
+
+// Catat audit sebelum session dihapus
 if (isLoggedIn()) {
-    $user = getCurrentUser();
-    logAudit($user['user_id'], 'LOGOUT', 'users', $user['user_id'], 'Logout dari sistem');
+    $uid  = getCurrentUserId();
+    $role = getCurrentRole();
+    logAudit($uid, 'LOGOUT', 'users', $uid, "Logout dari sistem sebagai {$role}");
 }
 
-// Hapus semua variabel session
-$_SESSION = [];
+// Hancurkan session (fungsi dari session.php)
+destroyUserSession();
 
-// Hapus cookie session jika ada
-if (ini_get('session.use_cookies')) {
-    $params = session_get_cookie_params();
-    setcookie(
-        session_name(),
-        '',
-        time() - 42000,
-        $params['path'],
-        $params['domain'],
-        $params['secure'],
-        $params['httponly']
-    );
-}
-
-// Hancurkan session
-session_destroy();
-
-// Redirect ke halaman login dengan pesan
+// Redirect ke login
 header('Location: ' . BASE_URL . '/auth/login.php');
 exit;

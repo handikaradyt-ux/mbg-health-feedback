@@ -4,6 +4,22 @@
  * Sidebar navigasi untuk role Petugas Validasi
  */
 $cp = basename($_SERVER['PHP_SELF']);
+
+// Hitung pending untuk badge — pdo sudah tersedia dari halaman pemanggil
+$_sbPendingHealth    = 0;
+$_sbPendingFeedback  = 0;
+if (isset($pdo)) {
+    try {
+        $_sbPendingHealth   = (int) $pdo->query(
+            "SELECT COUNT(*) FROM health_records WHERE validation_status = 'pending'"
+        )->fetchColumn();
+        $_sbPendingFeedback = (int) $pdo->query(
+            "SELECT COUNT(*) FROM feedbacks WHERE validation_status = 'pending'"
+        )->fetchColumn();
+    } catch (\Throwable $e) {
+        // Abaikan error — badge tidak tampil, navigasi tetap berjalan
+    }
+}
 ?>
 <nav class="sidebar bg-dark d-flex flex-column p-0">
     <div class="px-3 py-3 border-bottom border-secondary">
@@ -19,35 +35,47 @@ $cp = basename($_SERVER['PHP_SELF']);
             </a>
         </li>
 
-        <!-- <li class="nav-item mt-2">
-            <span class="nav-section-label">Validasi</span>
-        </li> -->
         <li class="nav-item">
-            <a class="nav-link <?= $cp === 'validate_health.php' ? 'active' : '' ?>"
+            <a class="nav-link d-flex justify-content-between align-items-center
+                      <?= $cp === 'validate_health.php' ? 'active' : '' ?>"
                href="<?= BASE_URL ?>/petugas/validate_health.php">
-                <i class="bi bi-clipboard2-pulse me-2"></i>Data Kesehatan
-            </a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link <?= $cp === 'validate_feedback.php' ? 'active' : '' ?>"
-               href="<?= BASE_URL ?>/petugas/validate_feedback.php">
-                <i class="bi bi-chat-square-check me-2"></i>Feedback Menu
+                <span>
+                    <i class="bi bi-clipboard2-pulse me-2"></i>Validasi Data Kesehatan
+                </span>
+                <?php if ($_sbPendingHealth > 0): ?>
+                    <span class="badge rounded-pill bg-warning text-dark ms-1">
+                        <?= $_sbPendingHealth ?>
+                    </span>
+                <?php endif; ?>
             </a>
         </li>
 
-        <!-- <li class="nav-item mt-2">
-            <span class="nav-section-label">Sistem</span>
-        </li> -->
+        <li class="nav-item">
+            <a class="nav-link d-flex justify-content-between align-items-center
+                      <?= $cp === 'validate_feedback.php' ? 'active' : '' ?>"
+               href="<?= BASE_URL ?>/petugas/validate_feedback.php">
+                <span>
+                    <i class="bi bi-chat-square-check me-2"></i>Validasi Feedback
+                </span>
+                <?php if ($_sbPendingFeedback > 0): ?>
+                    <span class="badge rounded-pill bg-warning text-dark ms-1">
+                        <?= $_sbPendingFeedback ?>
+                    </span>
+                <?php endif; ?>
+            </a>
+        </li>
+
         <li class="nav-item">
             <a class="nav-link <?= $cp === 'audit_log.php' ? 'active' : '' ?>"
                href="<?= BASE_URL ?>/petugas/audit_log.php">
                 <i class="bi bi-journal-bookmark me-2"></i>Audit Log
             </a>
         </li>
+
         <li class="nav-item">
             <a class="nav-link <?= $cp === 'feedback.php' ? 'active' : '' ?>"
-               href="<?= BASE_URL ?>/admin/reports/feedback.php ">
-                <i class="bi bi-journal-bookmark me-2"></i>Kepuasan Menu
+               href="<?= BASE_URL ?>/admin/reports/feedback.php">
+                <i class="bi bi-graph-up me-2"></i>Kepuasan Menu
             </a>
         </li>
 

@@ -61,8 +61,9 @@ function saDirActive(string $folder): string {
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="<?= BASE_URL ?>/admin/reports/export_pdf.php" target="_blank">
-                <i class="bi bi-file-pdf me-2"></i>Export PDF
+            <a class="nav-link <?= saActive('export_pdf.php') ?>"
+               href="<?= BASE_URL ?>/admin/reports/export_pdf.php">
+                <i class="bi bi-file-pdf me-2"></i>Ekspor
             </a>
         </li>
 

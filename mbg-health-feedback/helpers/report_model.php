@@ -377,3 +377,463 @@ function getHealthTableCount(PDO $pdo, string $dateStart, string $dateEnd, strin
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return (int)($row['cnt'] ?? 0);
 }
+
+/**
+ * helpers/report_model.php — TAMBAHAN REVISI 3
+ * Fungsi-fungsi baru untuk Laporan Kepuasan Menu (admin/reports/feedback.php)
+ *
+ * INSTRUKSI: Tempelkan blok kode ini di bagian BAWAH file report_model.php
+ * yang sudah ada, setelah fungsi getHealthTableCount().
+ * Jangan hapus atau ubah fungsi yang sudah ada sebelumnya.
+ */
+ 
+// ─────────────────────────────────────────────────────────────────────────────
+// REVISI 3 — Admin → Laporan Kepuasan Menu (feedback.php)
+// ─────────────────────────────────────────────────────────────────────────────
+ 
+/**
+ * Bangun klausa WHERE dinamis untuk filter Laporan Feedback.
+ * Dipakai secara internal oleh fungsi-fungsi laporan feedback.
+ *
+ * @param string   $dateStart  Format Y-m-d
+ * @param string   $dateEnd    Format Y-m-d
+ * @param int|null $menuId     null = semua menu
+ * @param int|null $minRating  null = semua rating (1–5)
+ * @return array [ 'where' => string, 'params' => array ]
+ */
+function _feedbackFilterClause(
+    string $dateStart,
+    string $dateEnd,
+    ?int   $menuId    = null,
+    ?int   $minRating = null
+): array {
+    $where  = "WHERE f.validation_status = 'approved'
+               AND   f.feedback_date BETWEEN :date_start AND :date_end";
+    $params = [
+        ':date_start' => $dateStart,
+        ':date_end'   => $dateEnd,
+    ];
+ 
+    if ($menuId !== null) {
+        $where .= " AND f.menu_id = :menu_id";
+        $params[':menu_id'] = $menuId;
+    }
+ 
+    if ($minRating !== null) {
+        $where .= " AND f.rating >= :min_rating";
+        $params[':min_rating'] = $minRating;
+    }
+ 
+    return ['where' => $where, 'params' => $params];
+}
+ 
+/**
+ * Kartu ringkasan Laporan Feedback.
+ *
+ * Mengembalikan:
+ *   [
+ *     'total_approved' => int,   // jumlah feedback approved dalam filter
+ *     'avg_rating'     => float, // rata-rata rating global
+ *   ]
+ *
+ * @param PDO      $pdo
+ * @param string   $dateStart
+ * @param string   $dateEnd
+ * @param int|null $menuId
+ * @param int|null $minRating
+ * @return array
+ */
+function getFeedbackSummary(
+    PDO    $pdo,
+    string $dateStart,
+    string $dateEnd,
+    ?int   $menuId    = null,
+    ?int   $minRating = null
+): array {
+    $f = _feedbackFilterClause($dateStart, $dateEnd, $menuId, $minRating);
+ 
+    $sql = "
+        SELECT
+            COUNT(*)                AS total_approved,
+            COALESCE(AVG(f.rating), 0) AS avg_rating
+        FROM feedbacks f
+        {$f['where']}
+    ";
+ 
+    $stmt = $pdo->prepare($sql);
+    foreach ($f['params'] as $k => $v) {
+        $stmt->bindValue($k, $v);
+    }
+    $stmt->execute();
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+ 
+    return [
+        'total_approved' => (int)   ($row['total_approved'] ?? 0),
+        'avg_rating'     => (float) ($row['avg_rating']     ?? 0),
+    ];
+}
+ 
+/**
+ * Menu terbaik atau terburuk berdasarkan rata-rata rating.
+ *
+ * @param PDO    $pdo
+ * @param string $dateStart
+ * @param string $dateEnd
+ * @param string $type  'best' | 'worst'
+ * @return array|null   [ 'menu_id', 'menu_name', 'avg_rating' ] atau null jika kosong
+ */
+function getFeedbackBestWorstMenu(
+    PDO    $pdo,
+    string $dateStart,
+    string $dateEnd,
+    string $type = 'best'
+): ?array {
+    $order = $type === 'best' ? 'DESC' : 'ASC';
+ 
+    $stmt = $pdo->prepare("
+        SELECT m.menu_id, m.menu_name, AVG(f.rating) AS avg_rating
+        FROM   feedbacks f
+        JOIN   menus m ON m.menu_id = f.menu_id
+        WHERE  f.validation_status = 'approved'
+          AND  f.feedback_date BETWEEN :date_start AND :date_end
+        GROUP  BY m.menu_id, m.menu_name
+        ORDER  BY avg_rating {$order}
+        LIMIT  1
+    ");
+    $stmt->execute([':date_start' => $dateStart, ':date_end' => $dateEnd]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+ 
+    return $row ?: null;
+}
+ 
+/**
+ * Rata-rata rating per menu dalam satu periode (untuk grafik batang perbandingan).
+ *
+ * Mengembalikan array:
+ *   [ ['menu_id' => int, 'menu_name' => string, 'avg_rating' => float], … ]
+ *
+ * @param PDO    $pdo
+ * @param string $dateStart
+ * @param string $dateEnd
+ * @return array
+ */
+function getFeedbackRatingByMenu(PDO $pdo, string $dateStart, string $dateEnd): array
+{
+    $stmt = $pdo->prepare("
+        SELECT m.menu_id, m.menu_name, AVG(f.rating) AS avg_rating
+        FROM   feedbacks f
+        JOIN   menus m ON m.menu_id = f.menu_id
+        WHERE  f.validation_status = 'approved'
+          AND  f.feedback_date BETWEEN :date_start AND :date_end
+        GROUP  BY m.menu_id, m.menu_name
+        ORDER  BY avg_rating DESC
+    ");
+    $stmt->execute([':date_start' => $dateStart, ':date_end' => $dateEnd]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+ 
+/**
+ * Distribusi rating (1–5 bintang) per menu dalam rentang filter.
+ * Digunakan untuk panel progress bar "Distribusi Rating per Menu".
+ *
+ * Mengembalikan array per menu:
+ *   [
+ *     'menu_id'   => int,
+ *     'menu_name' => string,
+ *     'dist'      => [1 => int, 2 => int, 3 => int, 4 => int, 5 => int],
+ *   ]
+ *
+ * @param PDO      $pdo
+ * @param string   $dateStart
+ * @param string   $dateEnd
+ * @param int|null $menuId
+ * @param int|null $minRating
+ * @return array
+ */
+function getFeedbackRatingDistribution(
+    PDO    $pdo,
+    string $dateStart,
+    string $dateEnd,
+    ?int   $menuId    = null,
+    ?int   $minRating = null
+): array {
+    $f = _feedbackFilterClause($dateStart, $dateEnd, $menuId, $minRating);
+ 
+    $sql = "
+        SELECT
+            m.menu_id,
+            m.menu_name,
+            SUM(CASE WHEN f.rating = 1 THEN 1 ELSE 0 END) AS star_1,
+            SUM(CASE WHEN f.rating = 2 THEN 1 ELSE 0 END) AS star_2,
+            SUM(CASE WHEN f.rating = 3 THEN 1 ELSE 0 END) AS star_3,
+            SUM(CASE WHEN f.rating = 4 THEN 1 ELSE 0 END) AS star_4,
+            SUM(CASE WHEN f.rating = 5 THEN 1 ELSE 0 END) AS star_5
+        FROM feedbacks f
+        JOIN menus m ON m.menu_id = f.menu_id
+        {$f['where']}
+        GROUP BY m.menu_id, m.menu_name
+        ORDER BY SUM(f.rating) / COUNT(f.rating) DESC
+    ";
+ 
+    $stmt = $pdo->prepare($sql);
+    foreach ($f['params'] as $k => $v) {
+        $stmt->bindValue($k, $v);
+    }
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+ 
+    $result = [];
+    foreach ($rows as $r) {
+        $result[] = [
+            'menu_id'   => (int) $r['menu_id'],
+            'menu_name' => $r['menu_name'],
+            'dist'      => [
+                1 => (int) $r['star_1'],
+                2 => (int) $r['star_2'],
+                3 => (int) $r['star_3'],
+                4 => (int) $r['star_4'],
+                5 => (int) $r['star_5'],
+            ],
+        ];
+    }
+    return $result;
+}
+ 
+/**
+ * Tabel peringkat menu — dengan tren bulan ini vs bulan lalu (terpaginasi).
+ *
+ * Setiap baris mengembalikan:
+ *   menu_id, menu_name, total_feedback, avg_rating,
+ *   star_1 … star_5,
+ *   prev_avg_rating (rata-rata bulan sebelumnya, null jika tidak ada data)
+ *
+ * @param PDO      $pdo
+ * @param string   $dateStart    Awal bulan aktif (Y-m-d)
+ * @param string   $dateEnd      Akhir bulan aktif (Y-m-d)
+ * @param int|null $menuId
+ * @param int|null $minRating
+ * @param int      $page
+ * @param int      $perPage
+ * @return array
+ */
+function getFeedbackRanking(
+    PDO    $pdo,
+    string $dateStart,
+    string $dateEnd,
+    ?int   $menuId    = null,
+    ?int   $minRating = null,
+    int    $page      = 1,
+    int    $perPage   = 10
+): array {
+    $f      = _feedbackFilterClause($dateStart, $dateEnd, $menuId, $minRating);
+    $offset = ($page - 1) * $perPage;
+ 
+    // Hitung tanggal awal & akhir bulan sebelumnya secara otomatis
+    $prevStart = date('Y-m-01', strtotime('-1 month', strtotime($dateStart)));
+    $prevEnd   = date('Y-m-t',  strtotime($prevStart));
+ 
+    $sql = "
+        SELECT
+            m.menu_id,
+            m.menu_name,
+            COUNT(f.feedback_id)                           AS total_feedback,
+            COALESCE(AVG(f.rating), 0)                    AS avg_rating,
+            SUM(CASE WHEN f.rating = 1 THEN 1 ELSE 0 END) AS star_1,
+            SUM(CASE WHEN f.rating = 2 THEN 1 ELSE 0 END) AS star_2,
+            SUM(CASE WHEN f.rating = 3 THEN 1 ELSE 0 END) AS star_3,
+            SUM(CASE WHEN f.rating = 4 THEN 1 ELSE 0 END) AS star_4,
+            SUM(CASE WHEN f.rating = 5 THEN 1 ELSE 0 END) AS star_5,
+            (
+                SELECT AVG(fp.rating)
+                FROM   feedbacks fp
+                WHERE  fp.menu_id          = m.menu_id
+                  AND  fp.validation_status = 'approved'
+                  AND  fp.feedback_date BETWEEN :prev_start AND :prev_end
+            ) AS prev_avg_rating
+        FROM feedbacks f
+        JOIN menus m ON m.menu_id = f.menu_id
+        {$f['where']}
+        GROUP  BY m.menu_id, m.menu_name
+        ORDER  BY avg_rating DESC
+        LIMIT  :lim OFFSET :off
+    ";
+ 
+    $stmt = $pdo->prepare($sql);
+    foreach ($f['params'] as $k => $v) {
+        $stmt->bindValue($k, $v);
+    }
+    $stmt->bindValue(':prev_start', $prevStart);
+    $stmt->bindValue(':prev_end',   $prevEnd);
+    $stmt->bindValue(':lim',  $perPage, PDO::PARAM_INT);
+    $stmt->bindValue(':off',  $offset,  PDO::PARAM_INT);
+    $stmt->execute();
+ 
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+ 
+/**
+ * Jumlah total menu pada tabel peringkat (untuk hitung total halaman pagination).
+ *
+ * @param PDO      $pdo
+ * @param string   $dateStart
+ * @param string   $dateEnd
+ * @param int|null $menuId
+ * @param int|null $minRating
+ * @return int
+ */
+function getFeedbackRankingCount(
+    PDO    $pdo,
+    string $dateStart,
+    string $dateEnd,
+    ?int   $menuId    = null,
+    ?int   $minRating = null
+): int {
+    $f = _feedbackFilterClause($dateStart, $dateEnd, $menuId, $minRating);
+ 
+    $sql = "
+        SELECT COUNT(DISTINCT f.menu_id) AS cnt
+        FROM feedbacks f
+        {$f['where']}
+    ";
+ 
+    $stmt = $pdo->prepare($sql);
+    foreach ($f['params'] as $k => $v) {
+        $stmt->bindValue($k, $v);
+    }
+    $stmt->execute();
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return (int)($row['cnt'] ?? 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVISI 4 — Export Laporan (admin/reports/export_pdf.php)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Ambil data lengkap Laporan Kesehatan untuk halaman cetak (tanpa pagination).
+ *
+ * @param PDO    $pdo
+ * @param string $dateStart  Format Y-m-d
+ * @param string $dateEnd    Format Y-m-d
+ * @param string $bmiCat     'semua' | 'Underweight' | 'Normal' | 'Overweight' | 'Obese'
+ * @return array
+ */
+function getHealthExportData(PDO $pdo, string $dateStart, string $dateEnd, string $bmiCat): array
+{
+    $f = _healthFilterClause($dateStart, $dateEnd, $bmiCat);
+
+    $sql = "
+        SELECT
+            u.full_name,
+            h.input_date,
+            h.height_cm,
+            h.weight_kg,
+            h.bmi_value,
+            h.bmi_category,
+            h.validation_status
+        FROM health_records h
+        JOIN users u ON u.user_id = h.user_id
+        {$f['where']}
+        ORDER BY h.input_date DESC, h.health_id DESC
+    ";
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($f['params'] as $k => $v) {
+        $stmt->bindValue($k, $v);
+    }
+    $stmt->execute();
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Ambil data lengkap Laporan Feedback untuk halaman cetak (tanpa pagination).
+ *
+ * @param PDO      $pdo
+ * @param string   $dateStart
+ * @param string   $dateEnd
+ * @param int|null $menuId
+ * @param int|null $minRating
+ * @return array
+ */
+function getFeedbackExportData(
+    PDO    $pdo,
+    string $dateStart,
+    string $dateEnd,
+    ?int   $menuId    = null,
+    ?int   $minRating = null
+): array {
+    $f = _feedbackFilterClause($dateStart, $dateEnd, $menuId, $minRating);
+
+    $sql = "
+        SELECT
+            u.full_name,
+            m.menu_name,
+            f.rating,
+            f.comment,
+            f.feedback_date,
+            f.validation_status
+        FROM feedbacks f
+        JOIN users u ON u.user_id = f.user_id
+        JOIN menus m ON m.menu_id = f.menu_id
+        {$f['where']}
+        ORDER BY f.feedback_date DESC, f.feedback_id DESC
+    ";
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($f['params'] as $k => $v) {
+        $stmt->bindValue($k, $v);
+    }
+    $stmt->execute();
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Simpan riwayat export ke tabel report_downloads.
+ *
+ * @param PDO    $pdo
+ * @param int    $userId
+ * @param string $reportType  'health' | 'feedback'
+ * @param string $fileName
+ * @return void
+ */
+function saveReportDownload(PDO $pdo, int $userId, string $reportType, string $fileName): void
+{
+    $stmt = $pdo->prepare("
+        INSERT INTO report_downloads (user_id, report_type, file_name, downloaded_at)
+        VALUES (:user_id, :report_type, :file_name, NOW())
+    ");
+    $stmt->execute([
+        ':user_id'     => $userId,
+        ':report_type' => $reportType,
+        ':file_name'   => $fileName,
+    ]);
+}
+
+/**
+ * Ambil riwayat export laporan (terbaru -> terlama), join ke users.
+ *
+ * @param PDO $pdo
+ * @param int $limit
+ * @return array
+ */
+function getReportDownloadHistory(PDO $pdo, int $limit = 20): array
+{
+    $stmt = $pdo->prepare("
+        SELECT
+            rd.download_id,
+            rd.report_type,
+            rd.file_name,
+            rd.downloaded_at,
+            u.full_name AS admin_name
+        FROM report_downloads rd
+        JOIN users u ON u.user_id = rd.user_id
+        ORDER BY rd.downloaded_at DESC
+        LIMIT :lim
+    ");
+    $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}

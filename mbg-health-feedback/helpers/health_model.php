@@ -70,3 +70,28 @@ function insertHealthRecord(
         ':notes'      => $notes,
     ]);
 }
+
+/**
+ * Ambil seluruh data kesehatan berstatus pending, join dengan users.
+ * Dipakai oleh petugas/validate_health.php dan dashboard preview.
+ *
+ * @param PDO      $pdo
+ * @param int|null $limit  null = ambil semua; integer = batasi jumlah baris
+ * @return array
+ */
+function getPendingHealthRecords(PDO $pdo, ?int $limit = null): array
+{
+    $sql = "
+        SELECT hr.health_id, hr.height_cm, hr.weight_kg, hr.bmi_value,
+               hr.bmi_category, hr.input_date, hr.notes,
+               u.user_id, u.full_name, u.username
+        FROM   health_records hr
+        JOIN   users u ON u.user_id = hr.user_id
+        WHERE  hr.validation_status = 'pending'
+        ORDER  BY hr.created_at ASC
+    ";
+    if ($limit !== null) {
+        $sql .= " LIMIT " . (int) $limit;
+    }
+    return $pdo->query($sql)->fetchAll();
+}

@@ -238,3 +238,50 @@ function setUserActiveStatus(int $userId, bool $isActive): bool
         return false;
     }
 }
+
+/**
+ * Cek apakah username sudah dipakai (exclude user_id tertentu, untuk edit).
+ */
+function usernameExists(string $username, ?int $excludeId = null): bool
+{
+    try {
+        $pdo = getDBConnection();
+        $sql = "SELECT COUNT(*) FROM users WHERE username = :username";
+        $params = [':username' => $username];
+        if ($excludeId !== null) {
+            $sql .= " AND user_id != :exclude_id";
+            $params[':exclude_id'] = $excludeId;
+        }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn() > 0;
+    } catch (PDOException $e) {
+        error_log('usernameExists error: ' . $e->getMessage());
+        return true; // fail-safe: anggap sudah ada agar tidak duplikat
+    }
+}
+
+/**
+ * Cek apakah email sudah dipakai (exclude user_id tertentu, untuk edit).
+ */
+function emailExists(?string $email, ?int $excludeId = null): bool
+{
+    if ($email === null || $email === '') {
+        return false;
+    }
+    try {
+        $pdo = getDBConnection();
+        $sql = "SELECT COUNT(*) FROM users WHERE email = :email";
+        $params = [':email' => $email];
+        if ($excludeId !== null) {
+            $sql .= " AND user_id != :exclude_id";
+            $params[':exclude_id'] = $excludeId;
+        }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn() > 0;
+    } catch (PDOException $e) {
+        error_log('emailExists error: ' . $e->getMessage());
+        return true;
+    }
+}

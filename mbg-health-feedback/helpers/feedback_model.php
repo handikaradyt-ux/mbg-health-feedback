@@ -46,3 +46,29 @@ function getFeedbackHistoryByUser(PDO $pdo, int $userId): array {
     $stmt->execute([':uid' => $userId]);
     return $stmt->fetchAll();
 }
+
+/**
+ * Ambil seluruh feedback berstatus pending, join dengan users & menus.
+ * Dipakai oleh petugas/validate_feedback.php dan dashboard preview.
+ *
+ * @param PDO      $pdo
+ * @param int|null $limit  null = ambil semua; integer = batasi jumlah baris
+ * @return array
+ */
+function getPendingFeedbacks(PDO $pdo, ?int $limit = null): array
+{
+    $sql = "
+        SELECT f.feedback_id, f.rating, f.comment, f.feedback_date,
+               u.user_id, u.full_name, u.username,
+               m.menu_id, m.menu_name, m.menu_date
+        FROM   feedbacks f
+        JOIN   users u ON u.user_id = f.user_id
+        JOIN   menus  m ON m.menu_id = f.menu_id
+        WHERE  f.validation_status = 'pending'
+        ORDER  BY f.created_at ASC
+    ";
+    if ($limit !== null) {
+        $sql .= " LIMIT " . (int) $limit;
+    }
+    return $pdo->query($sql)->fetchAll();
+}
